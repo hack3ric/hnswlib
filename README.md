@@ -263,6 +263,11 @@ print("Recall for two batches:", np.mean(labels.reshape(-1) == np.arange(len(dat
 * multivector search
 * epsilon search
 
+For overlapping C++ searches and insertion of new labels, see
+[ConcurrentHierarchicalNSW](CONCURRENCY.md). This opt-in type uses fixed capacity;
+concurrent deletion and Python support are deferred. The existing index APIs keep
+their existing concurrency contracts.
+
 
 ### Bindings installation
 

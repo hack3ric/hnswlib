@@ -1,6 +1,9 @@
 # Concurrent workloads in hnswlib
 
-Status: design plan; implementation has not started.
+Status: first C++ search/insert milestone implemented and validated. See
+[CONCURRENCY.md](CONCURRENCY.md) for the concrete API and synchronization protocol,
+and [CONCURRENCY_VALIDATION.md](CONCURRENCY_VALIDATION.md) for measured evidence,
+statistical uncertainty, and platform/workload limits. Later phases remain deferred.
 
 ## Objective and agreed scope
 
@@ -22,6 +25,13 @@ The first milestone is narrower:
 Fixed capacity at creation or loading is acceptable. Index growth and backing
 storage relocation are outside the first milestone.
 
+EBR is not needed in this milestone as long as storage visible to active
+operations is never freed, overwritten, relocated, or reused. Adjacency locks
+and a publication protocol are still required. Failed insertions may quarantine
+exposed storage until quiescent cleanup. Revisit EBR when adding concurrent
+reclamation, immutable-vector replacement, or copy-on-write adjacency that
+retires old buffers.
+
 Adding concurrency must not cause correctness or performance regressions in
 existing supported workloads. In particular, search-only throughput/latency,
 insert-only throughput/build time, and recall measured under the current testing
@@ -29,6 +39,12 @@ and benchmarking framework must not degrade merely because mixed-workload
 concurrency has been added. This is an acceptance requirement, not an optional
 optimization. Improvements in mixed-workload performance do not offset regressions
 in existing workloads.
+
+Keep changes confined to concurrency-related implementation, tests, benchmarks,
+and documentation. Do not rewrite or tune the other index implementations.
+Performance differences within measured statistical uncertainty are acceptable;
+use repeated comparable measurements to distinguish those from a reproducible
+regression.
 
 Existing-label updates overwrite vectors today. The proposed initial restriction
 is that updates, soft deletion, undelete, and deleted-slot replacement require
@@ -110,11 +126,12 @@ Route construction, ordinary search, filtered search, stop-condition search, and
 neighbor-selection heuristics through these accessors. Audit all direct reads of
 packed storage, including prefetch paths.
 
-Proposed compatibility approach: initially expose an opt-in concurrent
-configuration of `HierarchicalNSW`, retaining the existing mode for compatibility
-and performance comparison. Keep the library header-only and C++11-compatible.
-Finalize the configuration/API shape before implementation, including how legacy
-raw-pointer helpers and public internal fields are restricted during concurrency.
+Implementation decision: expose the opt-in `ConcurrentHierarchicalNSW` C++ type,
+which privately owns existing HNSW storage and reuses its pruning heuristic and
+file format. Composition prevents callers from bypassing the concurrency protocol
+through legacy public fields or raw-pointer helpers. Retain `HierarchicalNSW`
+unchanged for compatibility and performance comparison. Keep the library
+header-only and C++11-compatible.
 
 ### 2. Use fixed backing storage and explicit reservations
 
@@ -159,11 +176,19 @@ links.
 Write down a single lock-order protocol for label operations, entry-point
 metadata, and adjacency changes. Avoid retaining one node lock while acquiring
 another. Where a multi-node commit is necessary, acquire a sorted, deduplicated
-set of locks. Never invoke user filters or distance callbacks while holding graph
-locks.
+set of locks. Concurrent searches and insertions must not invoke user filters or
+distance callbacks while holding graph locks. Quiescent legacy updates remain
+isolated by exclusive admission and retain their existing callback behavior.
 
 Copy-on-write adjacency is a possible later optimization if measured contention
 warrants its additional memory and reclamation complexity.
+
+Performance refinement: automatically admit unlocked adjacency reads during
+read-only phases. The first writer closes that phase and drains previously
+registered readers before mutation. New searches use locked snapshots and can
+overlap writers; the last writer reopens the fast path. Test the registration,
+drain, and reopening races explicitly. A slow reader may delay the first writer,
+so include that transition in latency validation.
 
 ### 4. Define insertion publication and rollback
 
@@ -407,7 +432,8 @@ acquiring the GIL for a Python callback.
 ## Delivery sequence
 
 Git commits may be used to organize changes into coherent, reviewable steps
-throughout implementation and validation.
+throughout implementation and validation. Keep each commit focused and record
+the relevant validation and any unresolved acceptance requirements.
 
 | Stage | Deliverable | Scope |
 | --- | --- | --- |
