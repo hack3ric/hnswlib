@@ -28,6 +28,8 @@ set(EXAMPLE_NAMES
     )
 
 set(TEST_NAMES
+    concurrent_compatibility_test
+    concurrent_search_insert_test
     epsilon_search_test
     multiThread_replace_test
     multiThreadLoad_test
@@ -259,6 +261,10 @@ if(HNSWLIB_EXAMPLES)
     foreach(test_name IN LISTS TEST_NAMES)
         add_example_or_test("${test_name}" "tests/cpp/${test_name}.cpp")
     endforeach()
+
+    # Explicitly invoked measurements, not a timing-sensitive ctest gate.
+    add_executable(concurrent_benchmark tests/cpp/concurrent_benchmark.cpp)
+    target_link_libraries(concurrent_benchmark hnswlib)
 
     # This test deviates from the above pattern of naming test executables.
     add_example_or_test(test_updates tests/cpp/updates_test.cpp)
